@@ -1,0 +1,38 @@
+# build stuff
+build/*
+
+# built JS files
+dist/*
+
+# emacs
+.*~
+*~
+
+# vim
+*.swp
+
+#Eclipse
+.settings
+.settings/*
+.project
+.pydevproject
+
+# OSX
+.DS_Store
+
+# C extensions
+*.so
+
+# node modules
+node_modules/*
+
+__pycache__
+
+# JetBrains
+.idea/
+
+# VSCODE
+.vscode
+.vscode/
+.vscode/*
+*.code-workspace
