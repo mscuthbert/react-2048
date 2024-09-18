@@ -1,10 +1,10 @@
-import React, {useEffect, useCallback} from "react";
+import React, {useEffect, useCallback, useState, useRef} from "react";
 import choice from 'pick-random';
 
 import {MGrid} from "./grid";
 import {GameMessage} from "./overlay";
 import {Scoreboard} from "./scoreboard";
-import {sleep, usePromiseState, yx_to_index} from "./helpers";
+import {sleep, yx_to_index} from "./helpers";
 
 const DEBUG = true;
 
@@ -96,33 +96,52 @@ const RANDOM_START_HIGH = 0.9;
 const WINNING_VALUE = 2048;
 const TRANSITION_SPEED = DEBUG ? 1000 : 100;  // in ms
 
+enum GameUpdateState {
+    ADD_RANDOM_TILE = 'add_random_tile',
+    ADD_TWO_RANDOM_TILES = 'add_two_random_tiles',
+    NORMAL = 'normal',
+    TILES_SHIFT_END = 'tiles_shift_end',
+    POPPING = 'popping',
+}
+
 export default function App() {
-    const [game_over, get_game_over, set_game_over] = usePromiseState<boolean>(false);
-    const [show_game_won, get_show_game_won, set_show_game_won] = usePromiseState<boolean>(false);
-    const [game_won_already_shown, get_game_won_already_shown, set_game_won_already_shown] = usePromiseState<boolean>(false);
-    const [score, get_score, set_score] = usePromiseState<number>(0);
-    const [best_score, get_best_score, set_best_score] = usePromiseState<number>(0);
-    const [touch_mode, get_touch_mode, set_touch_mode] = usePromiseState<boolean>(false);
-    const [tile_values, get_tile_values, set_tile_values] = usePromiseState<number[]>(
+    const [game_update_status, set_game_update_status] = useState<GameUpdateState>(GameUpdateState.NORMAL);
+    const [game_over, set_game_over] = useState<boolean>(false);
+    const [show_game_won, set_show_game_won] = useState<boolean>(false);
+    const [game_won_already_shown, set_game_won_already_shown] = useState<boolean>(false);
+    const [score, set_score] = useState<number>(0);
+    const [best_score, set_best_score] = useState<number>(0);
+    const [touch_mode, set_touch_mode] = useState<boolean>(false);
+    const [tile_values, set_tile_values] = useState<number[]>(
         new Array(16).fill(0));
-    const [tiles_to_positions, get_tiles_to_positions, set_tiles_to_positions] = usePromiseState<number[]>(
+    const [tiles_to_positions, set_tiles_to_positions] = useState<number[]>(
         new Array(16).fill(-1));
-    const [free_tiles, get_free_tiles, set_free_tiles] = usePromiseState<number[]>([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
-    const [pop_tiles, get_pop_tiles, set_pop_tiles] = usePromiseState<boolean[]>(
+    const [free_tiles, set_free_tiles] = useState<number[]>([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+    const [pop_tiles, set_pop_tiles] = useState<boolean[]>(
         new Array(16).fill(false));
 
+    const points_gained_this_move_ref = useRef<number>(0);
+    const new_free_tiles_ref = useRef<number[]>([]);
+    debug_log('new_free_tiles_ref', new_free_tiles_ref.current);
+    const any_shifted_ref = useRef<boolean>(false);
+    const new_tile_positions_ref = useRef<number[]>([]);
+    const new_tile_values_ref = useRef<number[]>([]);
+    const increased_value_tiles_ref = useRef<Set<number>>(new Set());
+    const removed_tile_positions_move_positions_ref = useRef<Map<number, number>>(new Map());
+
+    const gameExplanation = useRef<HTMLDivElement>(null);
+
     function how_to_play() {
-        const ge = document.querySelector('.game-explanation') as HTMLElement;
-        ge.scrollIntoView({
+        gameExplanation.current.scrollIntoView({
             behavior: 'smooth',
             block: 'center',
         });
-        ge.addEventListener('animationend', () => {
-            ge.classList.remove('game-explanation-highlighted');
+        gameExplanation.current.addEventListener('animationend', () => {
+            gameExplanation.current.classList.remove('game-explanation-highlighted');
         });
-        ge.classList.add('game-explanation-highlighted');
-
+        gameExplanation.current.classList.add('game-explanation-highlighted');
     }
+
     function start_new_game(prepare: boolean = true) {
         if (prepare) {
             set_tiles_to_positions(new Array(16).fill(-1));
@@ -139,10 +158,26 @@ export default function App() {
 
     }
 
+    useEffect(() => {
+        switch (game_update_status) {
+            case GameUpdateState.ADD_RANDOM_TILE:
+                add_new_random_tile();
+                set_game_update_status(GameUpdateState.POPPING);
+                break;
+            case GameUpdateState.ADD_TWO_RANDOM_TILES:
+                add_new_random_tile(2);
+                set_game_update_status(GameUpdateState.NORMAL);
+                break;
+            case GameUpdateState.TILES_SHIFT_END:
+                tiles_shift_end().catch(console.error);
+                break;
+        }
+    }, [game_update_status]);
+
     function add_new_random_tile(num_to_add=1) {
-        const new_free_tiles = [...get_free_tiles()];
-        const new_tiles_to_positions = [...get_tiles_to_positions()];
-        const new_tile_values = [...get_tile_values()];
+        const new_free_tiles = [...free_tiles];
+        const new_tiles_to_positions = [...tiles_to_positions];
+        const new_tile_values = [...tile_values];
         const available_positions: number[] = [];
         for (let i = 0; i < 16; i++) {
             if (new_tile_values[i] === 0) {
@@ -185,7 +220,7 @@ export default function App() {
         return () => {
             document.removeEventListener('touchstart', touch_mode_listener);
         }
-    }, []);
+    });
 
     useEffect(() => {
         const keydown_listener = e => key_press(e);
@@ -193,7 +228,7 @@ export default function App() {
         return () => {
             document.removeEventListener('keydown', keydown_listener);
         }
-    },[]);
+    });
 
     const renderedYet = React.useRef(false);
     useEffect(() => {
@@ -201,12 +236,12 @@ export default function App() {
             renderedYet.current = true;
             start_new_game(false);
         }
-    }, []);
+    });
 
     let last_touch_x_y = [0, 0];
 
     const touchstart_listener = e => {
-        if (get_game_over() || get_show_game_won()) {
+        if (game_over || show_game_won) {
             return;
         }
         const touch: Touch = e.changedTouches[0];
@@ -215,14 +250,14 @@ export default function App() {
     };
 
     const touchmove_listener = e => {
-        if (get_game_over() || get_show_game_won()) {
+        if (game_over || show_game_won) {
             return;
         }
         e.preventDefault();
     };
 
     const touchend_listener = useCallback(e => {
-        if (get_game_over() || get_show_game_won()) {
+        if (game_over || show_game_won) {
             return;
         }
         const TOUCH_MOVE_THRESHOLD = 10;
@@ -259,7 +294,7 @@ export default function App() {
     }, []);
 
     function key_press(e: KeyboardEvent): void {
-        if (get_game_over() || get_show_game_won()) {
+        if (game_over || show_game_won) {
             return;
         }
 
@@ -273,11 +308,13 @@ export default function App() {
     }
 
     async function perform_shift(shift_y_x: [number, number]): Promise<void> {
-        const any_shifted = await shift_tiles(...shift_y_x);
+        const any_shifted = shift_tiles(...shift_y_x);
         if (any_shifted) {
+            set_game_update_status(GameUpdateState.TILES_SHIFT_END);
+        } else {
             debug_log('adding_new_random_tile');
-            add_new_random_tile();
-            check_game_won();
+            set_game_update_status(GameUpdateState.ADD_RANDOM_TILE);
+            // check_game_won();
             // check_game_over();
             // store_state();
         }
@@ -296,25 +333,43 @@ export default function App() {
             x_shift,
         });
 
-        const new_free_tiles = [...get_free_tiles()] as number[];
+        const new_free_tiles = [...free_tiles] as number[];
         const temp_tile_positions = [...new_tile_positions];
         for (const [tile_to_remove, move_to] of removed_tile_positions_move_positions.entries()) {
             new_free_tiles.push(tile_to_remove);
             temp_tile_positions[tile_to_remove] = move_to;
         }
 
-        await set_tiles_to_positions(temp_tile_positions);
+        set_tiles_to_positions(temp_tile_positions);
         debug_log('set_tiles_to_positions');
+        set_game_update_status(GameUpdateState.TILES_SHIFT_END);
         await sleep(TRANSITION_SPEED);
+        points_gained_this_move_ref.current = points_gained_this_move;
+        increased_value_tiles_ref.current = increased_value_tiles;
+        new_tile_positions_ref.current = new_tile_positions;
+        new_tile_values_ref.current = new_tile_values;
+        new_free_tiles_ref.current = new_free_tiles;
+        any_shifted_ref.current = any_shifted;
 
-        await set_free_tiles(new_free_tiles);
-        debug_log('set_free_tiles');
+        return any_shifted;
+    }
+
+    async function tiles_shift_end() {
+        const points_gained_this_move = points_gained_this_move_ref.current;
+        const increased_value_tiles = increased_value_tiles_ref.current;
+        const new_tile_positions = new_tile_positions_ref.current;
+        const new_tile_values = new_tile_values_ref.current;
+        const new_free_tiles = new_free_tiles_ref.current;
+        const any_shifted = any_shifted_ref.current;
+
+        debug_log('set_free_tiles', new_free_tiles);
+        set_free_tiles(new_free_tiles);
         await sleep(TRANSITION_SPEED);
-        await set_tile_values(new_tile_values);
-        debug_log('set_tile_values');
+        debug_log('set_tile_values', new_tile_values);
+        set_tile_values(new_tile_values);
         await sleep(TRANSITION_SPEED);
-        await set_tiles_to_positions(new_tile_positions);
-        debug_log('set_tiles_to_positions 2');
+        debug_log('set_tiles_to_positions 2', new_tile_positions);
+        set_tiles_to_positions(new_tile_positions);
         await sleep(TRANSITION_SPEED);
 
         const new_pop_tiles = new Array(16).fill(false);
@@ -334,6 +389,8 @@ export default function App() {
             //     TRANSITION_SPEED,
             //  );
         }
+        points_gained_this_move_ref.current = 0;
+        set_game_update_status(GameUpdateState.ADD_RANDOM_TILE);
         return any_shifted;
     }
 
@@ -353,7 +410,7 @@ export default function App() {
 
 
     function check_game_won(): void {
-        if (get_game_won_already_shown()) {
+        if (game_won_already_shown) {
             return;
         }
         let inner_game_won = false;
@@ -368,7 +425,7 @@ export default function App() {
     function compute_grid_after_shift({y_shift, x_shift}: GridComputation): GridStatus {
         const [y_iterate, x_iterate] = get_shift_iterators(y_shift, x_shift);
 
-        const new_grid = make_grid(get_tiles_to_positions());
+        const new_grid = make_grid([...tiles_to_positions]);
         // a tile might be removed but need to shift first, like:
         //    shift left:  [null, 2, 2, null]
         // the first 2 has to shift left before disappearing.
@@ -380,7 +437,7 @@ export default function App() {
         let any_shifted_this_iter = false;
         let first_run = true;
         let points_gained_this_move: number = 0;
-        const new_tile_values = [...get_tile_values()];
+        const new_tile_values = [...tile_values];
         while (any_shifted_this_iter || first_run) {
             first_run = false;
             any_shifted_this_iter = false;
@@ -439,7 +496,7 @@ export default function App() {
     }
 
     function add_score(val: number) {
-        set_score(get_score() + val);
+        set_score(sc => sc + val);
         if (score + val > best_score) {
             set_best_score(score + val);
         }
@@ -472,7 +529,7 @@ export default function App() {
                     </div>
                 </div>
                 <div className="game-explanation-container">
-                    <p className="game-explanation">
+                    <p className="game-explanation" ref={gameExplanation}>
                         <strong style={{textTransform: 'uppercase'}}>How to play: </strong>
                         {touch_mode
                             ? <span>Swipe with <strong>your fingers</strong> </span>
