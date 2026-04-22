@@ -6,7 +6,7 @@ $field_width: 500px;
 $grid_spacing: 15px;
 $scoreboard_height: 25px;
 $grid_row_cells: 4;
-$tile_size: round(($field_width - ($grid_spacing * ($grid_row_cells + 1))) / $grid_row_cells);
+$tile_size: math.round(math.div($field_width - ($grid_spacing * ($grid_row_cells + 1)), $grid_row_cells));
 $tile_border_radius: 3px;
 $tile_color: rgb(238, 228, 213);
 $tile_gold_color: rgb(237, 194, 46);
@@ -86,8 +86,19 @@ html, body {
             &.active {
                 opacity: 1;
             }
-            &.pop {
-                transform: scale(1.2);
+            // pop class needs to override the tile_y_x translate transform.
+            // In Lit, :host(.pop) .tile { transform: scale(1.2) } worked because
+            // host-level class didn't conflict with tile-level transform.
+            // Here we combine both: translate to position AND scale up.
+            @for $y from 0 through 3 {
+                @for $x from 0 through 3 {
+                    &.pop.tile_#{$y}_#{$x} {
+                        transform: translate(
+                            #{$x * ($tile_size + $grid_spacing) + $grid_spacing},
+                            #{$y * ($tile_size + $grid_spacing) + $grid_spacing}
+                        ) scale(1.2);
+                    }
+                }
             }
 
             &.level_1 {
@@ -273,9 +284,10 @@ html, body {
                 opacity: 1;
             }
         }
-        animation: fade-in 800ms ease $slow_transition_speed;
-        animation-fill-mode: both;
 
+        // Hidden by default. In Lit, the overlay used :host([game_over]) CSS
+        // selectors to show itself when boolean attributes were set.
+        // In React, we add/remove the 'active' class from JSX based on props.
         display: none;
         top: 18px;
         right: 0;
@@ -299,6 +311,11 @@ html, body {
         .lower {
             display: block;
             margin-top: 59px;
+        }
+
+        &.active {
+            display: block;
+            animation: fade-in 800ms ease $slow_transition_speed both;
         }
 
         .game-won {
@@ -430,24 +447,24 @@ html, body {
             content: "Best"
         }
 
+        // In Lit, the "+N" animation used CSS transitions triggered by adding/removing
+        // an 'active' class. This required careful timing to reset the transition
+        // state (the 'inactive' class hack) before re-triggering.
+        //
+        // In React, using React's `key` prop to remount the element (see scoreboard.tsx)
+        // means we can use a CSS @keyframes animation instead. The animation fires
+        // automatically when the element is mounted — no class juggling needed.
+        @keyframes score-float-up {
+            0%   { opacity: 1; transform: translate(0px, 0px); }
+            100% { opacity: 0; transform: translate(0px, -80px); }
+        }
         .latest_add {
-            transition: all 800ms;
             position: absolute;
             top: 10px;
             left: 10px;
             display: inline-block;
             color: black;
-            opacity: 1;
-            transform: translate(0px, 0px);
-
-            &.active {
-                opacity: 0.0;
-                transform: translate(0px, -80px);
-            }
-
-            &.inactive {
-                transition: all 1ms;
-            }
+            animation: score-float-up 1200ms ease forwards;
         }
     }
 }

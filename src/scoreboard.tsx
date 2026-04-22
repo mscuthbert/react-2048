@@ -1,74 +1,68 @@
-import React from "react";
+/**
+ * scoreboard.tsx — Score display with animated "+N" increment
+ *
+ * ═══════════════════════════════════════════════════════════════════
+ * REACT vs LIT: "Controlled" vs imperative components
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ * In wc-2048, MScoreboard was an independent element with its own
+ * mutable state. MApp called `scoreboard.set_score(val)` directly —
+ * an imperative method call on a child element:
+ *
+ *   @query('m-scoreboard.current') scoreboard: MScoreboard;
+ *   this.scoreboard.set_score(this.score);
+ *
+ * In React, the idiomatic pattern is a "controlled component":
+ *   - The child (Scoreboard) has NO internal state for the score.
+ *   - The parent (App) owns the data and passes it as props.
+ *   - The child only renders what it receives.
+ *
+ * This "unidirectional data flow" (parent → child via props) makes
+ * data flow explicit and predictable. There's no need to hold refs
+ * to child components or call methods on them.
+ *
+ * For the "+N" animation, the parent also controls `score_add`:
+ *   - When score increases, App sets score_add = points
+ *   - App clears it after 1200ms with a setTimeout
+ *   - Scoreboard renders a floating element keyed on score,
+ *     so React unmounts/remounts it each time, restarting the CSS animation
+ * ═══════════════════════════════════════════════════════════════════
+ */
 
-export function Scoreboard({ score, latest_add, is_current_score }) {
-    const active = (latest_add !== 0);
-    return (
-        <div className="scoreboard">
-            <div className={'score ' + (is_current_score ? 'current' : 'best')}>
-                {score}
-            </div>
-            <div className={'latest_add ' + (active && 'active')}>
-                {active ? '+' + this.latest_add : null}
-            </div>
-        </div>
-    )
+import React from 'react';
+
+interface ScoreboardProps {
+    score: number;
+    score_add: number;   // points gained this move (0 when not animating)
+    is_current_score: boolean;
 }
 
-// import {customElement, property, query} from 'lit/decorators.js';
-// import {css, html, LitElement} from 'lit';
-// import {classMap} from 'lit/directives/class-map.js';
-//
-// import {rgb_s, sleep} from './help';
-// import {s} from './styles';
-//
-// @customElement('m-scoreboard')
-// export class MScoreboard extends LitElement {
-//     @property({type: Number}) score: number = 0;
-//     @property({type: Number}) latest_add: number = 0;
-//     @property({type: Boolean}) is_current_score: boolean = false;
-//
-//     @query('.latest_add') latest_add_div: HTMLElement;
-//
-//     _add_timeout: number;
-//
-//     static override get styles() {
-//         const height = 25;
-//         return css`
-//         `;
-//     }
-//
-//     async set_score(val: number) {
-//         if (this._add_timeout !== undefined) {
-//             window.clearTimeout(this._add_timeout);
-//             this._add_timeout = 0;
-//             this.latest_add = 0;
-//             this.latest_add_div.classList.add('inactive');
-//             await this.updateComplete;
-//             await sleep(3);
-//             this.latest_add_div.classList.remove('inactive');
-//         }
-//         const prev_score = this.score;
-//         this.score = val;
-//         if (!this.is_current_score) {
-//             return;
-//         }
-//         this.latest_add = val - prev_score;
-//         this._add_timeout = window.setTimeout(() => {
-//             this.latest_add = 0;
-//             this._add_timeout = undefined;
-//         }, 1000);
-//     }
-//
-//     override render() {
-//         const active = (this.latest_add !== 0);
-//         const active_classes = {active};
-//         return html`
-//             <div class="score">
-//                 ${this.score}
-//             </div>
-//             <div class="latest_add ${classMap(active_classes)}">
-//                 ${active ? html`+${this.latest_add}` : null}
-//             </div>
-//         `;
-//     }
-// }
+export function Scoreboard({ score, score_add, is_current_score }: ScoreboardProps) {
+    const show_add = is_current_score && score_add > 0;
+
+    return (
+        <div className="scoreboard">
+            <div className={`score ${is_current_score ? 'current' : 'best'}`}>
+                {score}
+            </div>
+            {/*
+             * The `key={score}` prop forces React to unmount and remount
+             * this element whenever the score changes — restarting the
+             * CSS animation from scratch each time.
+             *
+             * In Lit, MScoreboard did something similar by temporarily
+             * adding/removing an 'inactive' class to reset the transition
+             * state. The React `key` trick is cleaner for this use case.
+             *
+             * Without `key`, if the score increases twice quickly, the
+             * element would already be partially through its animation and
+             * the second +N would not restart from the visible position.
+             */}
+            {show_add && (
+                <div className="latest_add" key={score}>
+                    +{score_add}
+                </div>
+            )}
+        </div>
+    );
+}

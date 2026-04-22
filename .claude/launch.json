@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "react-2048",
+      "runtimeExecutable": "node_modules/.bin/webpack",
+      "runtimeArgs": ["serve", "--port", "3000", "--mode", "development"],
+      "port": 3000
+    }
+  ]
+}
